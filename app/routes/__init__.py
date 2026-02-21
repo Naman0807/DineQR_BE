@@ -1,0 +1,11 @@
+from fastapi import APIRouter
+from app.routes.menu import router as menu_router
+from app.routes.tables import router as tables_router
+from app.routes.orders import router as orders_router
+from app.routes.bills import router as bills_router
+
+api_router = APIRouter()
+api_router.include_router(menu_router)
+api_router.include_router(tables_router)
+api_router.include_router(orders_router)
+api_router.include_router(bills_router)
