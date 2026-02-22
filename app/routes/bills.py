@@ -8,11 +8,12 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models.models import (
-    Bill, Order, OrderSession, Table,
+    Bill, Order, OrderSession, OrderItem, Table,
     SessionStatus, PaymentStatus, TableStatus, OrderStatus
 )
 from app.schemas import (
-    BillCreate, BillUpdate, BillResponse, BillWithOrdersResponse
+    BillCreate, BillUpdate, BillResponse, BillWithOrdersResponse,
+    OrderResponse, OrderItemResponse
 )
 from app.utils.logger import logger
 
@@ -80,7 +81,7 @@ async def get_bill_by_session(session_id: str, db: AsyncSession = Depends(get_db
         select(Bill)
         .options(
             selectinload(Bill.session).selectinload(OrderSession.orders)
-            .selectinload(Order.items)
+            .selectinload(Order.items).selectinload(OrderItem.menu_item)
         )
         .where(Bill.session_id == session_id)
     )
@@ -89,7 +90,44 @@ async def get_bill_by_session(session_id: str, db: AsyncSession = Depends(get_db
         logger.api_error(SERVICE, "GET", f"/session/{session_id}", "Bill not found", session_id=session_id)
         raise HTTPException(status_code=404, detail="Bill not found")
     logger.api_response(SERVICE, "GET", f"/session/{session_id}", 200, bill_id=str(bill.id))
-    return bill
+    
+    orders_data = []
+    for order in (bill.session.orders if bill.session else []):
+        items_data = [
+            OrderItemResponse(
+                id=str(item.id),
+                menu_item_id=str(item.menu_item_id),
+                menu_item_name=item.menu_item.name if item.menu_item else "",
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                special_instructions=item.special_instructions,
+                status=item.status
+            )
+            for item in order.items
+        ]
+        orders_data.append(OrderResponse(
+            id=str(order.id),
+            session_id=str(order.session_id),
+            status=order.status,
+            total_amount=order.total_amount,
+            created_at=order.created_at,
+            updated_at=order.updated_at,
+            items=items_data
+        ))
+    
+    return BillWithOrdersResponse(
+        id=str(bill.id),
+        session_id=str(bill.session_id),
+        subtotal=bill.subtotal,
+        tax_amount=bill.tax_amount,
+        discount_amount=bill.discount_amount,
+        final_total=bill.final_total,
+        payment_status=bill.payment_status,
+        payment_method=bill.payment_method,
+        created_at=bill.created_at,
+        paid_at=bill.paid_at,
+        orders=orders_data
+    )
 
 
 @router.get("/{bill_id}", response_model=BillResponse)

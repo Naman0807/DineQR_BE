@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List
 import qrcode
 import io
@@ -71,7 +72,7 @@ async def delete_category(category_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/items", response_model=List[MenuItemWithCategory])
 async def get_menu_items(available_only: bool = False, db: AsyncSession = Depends(get_db)):
     logger.api_request(SERVICE, "GET", "/items", available_only=available_only)
-    query = select(MenuItem)
+    query = select(MenuItem).options(selectinload(MenuItem.category))
     if available_only:
         query = query.where(MenuItem.is_available == True)
     query = query.order_by(MenuItem.category_id, MenuItem.name)
