@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -7,8 +7,9 @@ import io
 import base64
 
 from app.database import get_db
-from app.models.models import Table, OrderSession, SessionStatus, TableStatus
+from app.models.models import Table, OrderSession, SessionStatus, TableStatus, User
 from app.schemas import TableCreate, TableResponse, TableWithQRResponse
+from app.auth.dependencies import get_current_admin_user
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/api/tables", tags=["Tables"])
@@ -27,16 +28,29 @@ def generate_qr_code_base64(qr_token: str, base_url: str = "http://localhost:300
 
 
 @router.get("/", response_model=List[TableResponse])
-async def get_tables(db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", "/")
-    result = await db.execute(select(Table).order_by(Table.table_number))
+async def get_tables(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db)
+):
+    logger.api_request(SERVICE, "GET", "/", skip=skip, limit=limit)
+    result = await db.execute(
+        select(Table)
+        .order_by(Table.table_number)
+        .offset(skip)
+        .limit(limit)
+    )
     tables = result.scalars().all()
     logger.api_response(SERVICE, "GET", "/", 200, count=len(tables))
     return tables
 
 
 @router.post("/", response_model=TableWithQRResponse, status_code=status.HTTP_201_CREATED)
-async def create_table(table: TableCreate, db: AsyncSession = Depends(get_db)):
+async def create_table(
+    table: TableCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "POST", "/", table_number=table.table_number)
     result = await db.execute(select(Table).where(Table.table_number == table.table_number))
     if result.scalar_one_or_none():
@@ -89,7 +103,11 @@ async def get_table_qr(table_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_table(table_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_table(
+    table_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "DELETE", f"/{table_id}", table_id=table_id)
     result = await db.execute(select(Table).where(Table.id == table_id))
     table = result.scalar_one_or_none()

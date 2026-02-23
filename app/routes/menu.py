@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -8,12 +8,13 @@ import io
 import base64
 
 from app.database import get_db
-from app.models.models import MenuCategory, MenuItem, Table
+from app.models.models import MenuCategory, MenuItem, Table, User
 from app.schemas import (
     MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryResponse,
     MenuItemCreate, MenuItemUpdate, MenuItemResponse, MenuItemWithCategory,
     TableCreate, TableResponse, TableWithQRResponse
 )
+from app.auth.dependencies import get_current_admin_user
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/api/menu", tags=["Menu"])
@@ -21,16 +22,29 @@ SERVICE = "menu"
 
 
 @router.get("/categories", response_model=List[MenuCategoryResponse])
-async def get_categories(db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", "/categories")
-    result = await db.execute(select(MenuCategory).order_by(MenuCategory.display_order))
+async def get_categories(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db)
+):
+    logger.api_request(SERVICE, "GET", "/categories", skip=skip, limit=limit)
+    result = await db.execute(
+        select(MenuCategory)
+        .order_by(MenuCategory.display_order)
+        .offset(skip)
+        .limit(limit)
+    )
     categories = result.scalars().all()
     logger.api_response(SERVICE, "GET", "/categories", 200, count=len(categories))
     return categories
 
 
 @router.post("/categories", response_model=MenuCategoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_category(category: MenuCategoryCreate, db: AsyncSession = Depends(get_db)):
+async def create_category(
+    category: MenuCategoryCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "POST", "/categories", name=category.name)
     db_category = MenuCategory(**category.model_dump())
     db.add(db_category)
@@ -41,7 +55,12 @@ async def create_category(category: MenuCategoryCreate, db: AsyncSession = Depen
 
 
 @router.put("/categories/{category_id}", response_model=MenuCategoryResponse)
-async def update_category(category_id: str, category: MenuCategoryUpdate, db: AsyncSession = Depends(get_db)):
+async def update_category(
+    category_id: str, 
+    category: MenuCategoryUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "PUT", f"/categories/{category_id}", category_id=category_id)
     result = await db.execute(select(MenuCategory).where(MenuCategory.id == category_id))
     db_category = result.scalar_one_or_none()
@@ -57,7 +76,11 @@ async def update_category(category_id: str, category: MenuCategoryUpdate, db: As
 
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(category_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_category(
+    category_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "DELETE", f"/categories/{category_id}", category_id=category_id)
     result = await db.execute(select(MenuCategory).where(MenuCategory.id == category_id))
     db_category = result.scalar_one_or_none()
@@ -70,12 +93,17 @@ async def delete_category(category_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/items", response_model=List[MenuItemWithCategory])
-async def get_menu_items(available_only: bool = False, db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", "/items", available_only=available_only)
+async def get_menu_items(
+    available_only: bool = False,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db)
+):
+    logger.api_request(SERVICE, "GET", "/items", available_only=available_only, skip=skip, limit=limit)
     query = select(MenuItem).options(selectinload(MenuItem.category))
     if available_only:
         query = query.where(MenuItem.is_available == True)
-    query = query.order_by(MenuItem.category_id, MenuItem.name)
+    query = query.order_by(MenuItem.category_id, MenuItem.name).offset(skip).limit(limit)
     result = await db.execute(query)
     items = result.scalars().all()
     logger.api_response(SERVICE, "GET", "/items", 200, count=len(items))
@@ -94,7 +122,11 @@ async def get_items_by_category(category_id: str, db: AsyncSession = Depends(get
 
 
 @router.post("/items", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)
-async def create_menu_item(item: MenuItemCreate, db: AsyncSession = Depends(get_db)):
+async def create_menu_item(
+    item: MenuItemCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "POST", "/items", name=item.name, category_id=item.category_id)
     result = await db.execute(select(MenuCategory).where(MenuCategory.id == item.category_id))
     if not result.scalar_one_or_none():
@@ -109,7 +141,12 @@ async def create_menu_item(item: MenuItemCreate, db: AsyncSession = Depends(get_
 
 
 @router.put("/items/{item_id}", response_model=MenuItemResponse)
-async def update_menu_item(item_id: str, item: MenuItemUpdate, db: AsyncSession = Depends(get_db)):
+async def update_menu_item(
+    item_id: str, 
+    item: MenuItemUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "PUT", f"/items/{item_id}", item_id=item_id)
     result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
     db_item = result.scalar_one_or_none()
@@ -125,7 +162,11 @@ async def update_menu_item(item_id: str, item: MenuItemUpdate, db: AsyncSession 
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_menu_item(item_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_menu_item(
+    item_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "DELETE", f"/items/{item_id}", item_id=item_id)
     result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
     db_item = result.scalar_one_or_none()
@@ -138,7 +179,12 @@ async def delete_menu_item(item_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/items/{item_id}/availability", response_model=MenuItemResponse)
-async def toggle_item_availability(item_id: str, is_available: bool, db: AsyncSession = Depends(get_db)):
+async def toggle_item_availability(
+    item_id: str, 
+    is_available: bool, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "PATCH", f"/items/{item_id}/availability", item_id=item_id, is_available=is_available)
     result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
     db_item = result.scalar_one_or_none()

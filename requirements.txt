@@ -9,3 +9,5 @@ python-dotenv==1.0.0
 qrcode[pil]==7.4.2
 python-multipart==0.0.6
 alembic==1.13.1
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4

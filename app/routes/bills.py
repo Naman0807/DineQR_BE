@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -8,13 +8,14 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models.models import (
-    Bill, Order, OrderSession, OrderItem, Table,
+    Bill, Order, OrderSession, OrderItem, Table, User,
     SessionStatus, PaymentStatus, TableStatus, OrderStatus
 )
 from app.schemas import (
     BillCreate, BillUpdate, BillResponse, BillWithOrdersResponse,
     OrderResponse, OrderItemResponse
 )
+from app.auth.dependencies import get_current_admin_user
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/api/bills", tags=["Bills"])
@@ -22,7 +23,11 @@ SERVICE = "bills"
 
 
 @router.post("/", response_model=BillResponse, status_code=status.HTTP_201_CREATED)
-async def create_bill(bill: BillCreate, db: AsyncSession = Depends(get_db)):
+async def create_bill(
+    bill: BillCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "POST", "/", session_id=bill.session_id)
     try:
         result = await db.execute(
@@ -143,7 +148,12 @@ async def get_bill(bill_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{bill_id}", response_model=BillResponse)
-async def update_bill(bill_id: str, update: BillUpdate, db: AsyncSession = Depends(get_db)):
+async def update_bill(
+    bill_id: str, 
+    update: BillUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "PATCH", f"/{bill_id}", bill_id=bill_id)
     result = await db.execute(
         select(Bill)
@@ -175,7 +185,12 @@ async def update_bill(bill_id: str, update: BillUpdate, db: AsyncSession = Depen
 
 
 @router.post("/{bill_id}/pay", response_model=BillResponse)
-async def pay_bill(bill_id: str, payment_method: str, db: AsyncSession = Depends(get_db)):
+async def pay_bill(
+    bill_id: str, 
+    payment_method: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "POST", f"/{bill_id}/pay", bill_id=bill_id, payment_method=payment_method)
     result = await db.execute(
         select(Bill)
@@ -205,9 +220,19 @@ async def pay_bill(bill_id: str, payment_method: str, db: AsyncSession = Depends
 
 
 @router.get("/", response_model=List[BillResponse])
-async def get_all_bills(db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", "/")
-    result = await db.execute(select(Bill).order_by(Bill.created_at.desc()))
+async def get_all_bills(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    logger.api_request(SERVICE, "GET", "/", skip=skip, limit=limit)
+    result = await db.execute(
+        select(Bill)
+        .order_by(Bill.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     bills = result.scalars().all()
     logger.api_response(SERVICE, "GET", "/", 200, count=len(bills))
     return bills
