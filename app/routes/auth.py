@@ -4,8 +4,8 @@ from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
-from app.models.models import User
-from app.auth import verify_password, create_access_token
+from app.models.models import User, UserRole
+from app.auth import verify_password, create_access_token, get_password_hash
 from app.auth.dependencies import get_current_admin_user
 from app.utils.logger import logger
 
@@ -16,6 +16,13 @@ SERVICE = "auth"
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+    role: str = "admin"
 
 
 class TokenResponse(BaseModel):
@@ -62,6 +69,57 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
     
     access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
     logger.api_response(SERVICE, "POST", "/login", 200, user_id=str(user.id))
+    
+    return TokenResponse(access_token=access_token)
+
+
+@router.post("/register", response_model=TokenResponse)
+async def register(register_data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Register a new admin user and return JWT token."""
+    logger.api_request(SERVICE, "POST", "/register", username=register_data.username, email=register_data.email)
+    
+    result = await db.execute(
+        select(User).where((User.username == register_data.username) | (User.email == register_data.email))
+    )
+    existing_user = result.scalar_one_or_none()
+    
+    if existing_user:
+        if existing_user.username == register_data.username:
+            logger.api_error(SERVICE, "POST", "/register", "Username already exists", username=register_data.username)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered",
+            )
+        else:
+            logger.api_error(SERVICE, "POST", "/register", "Email already exists", email=register_data.email)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
+    
+    try:
+        role = UserRole(register_data.role.lower())
+    except ValueError:
+        logger.api_error(SERVICE, "POST", "/register", "Invalid role", role=register_data.role)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Must be one of: {[r.value for r in UserRole]}",
+        )
+    
+    hashed_password = get_password_hash(register_data.password)
+    new_user = User(
+        username=register_data.username,
+        email=register_data.email,
+        hashed_password=hashed_password,
+        role=role,
+    )
+    
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    access_token = create_access_token(data={"sub": new_user.id, "role": new_user.role.value})
+    logger.api_response(SERVICE, "POST", "/register", 200, user_id=str(new_user.id))
     
     return TokenResponse(access_token=access_token)
 
