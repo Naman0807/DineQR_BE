@@ -106,6 +106,7 @@ class TableResponse(TableBase):
     qr_token: str
     status: TableStatus
     created_at: datetime
+    restaurant_slug: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

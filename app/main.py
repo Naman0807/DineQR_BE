@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 import uvicorn
 
@@ -9,8 +10,8 @@ from app.config import get_settings
 from app.database import init_db, async_session
 from app.routes import api_router
 from app.websocket.manager import ConnectionManager
-from app.auth.jwt import decode_access_token
-from app.models.models import User, UserRole, Table
+from app.auth.jwt import decode_access_token, get_password_hash
+from app.models.models import User, UserRole, Table, Restaurant
 from app.utils.logger import logger
 
 settings = get_settings()
@@ -21,7 +22,25 @@ async def lifespan(app: FastAPI):
     logger.info("[MAIN] Initializing database...")
     await init_db()
     logger.info("[MAIN] Database initialized successfully")
-    # Initialize WebSocket manager in app.state
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.username == settings.SUPERADMIN_USERNAME))
+        existing_superadmin = result.scalar_one_or_none()
+        
+        if not existing_superadmin:
+            superadmin = User(
+                username=settings.SUPERADMIN_USERNAME,
+                email="superadmin@dineqr.local",
+                role=UserRole.SUPERADMIN,
+                hashed_password=get_password_hash(settings.SUPERADMIN_PASSWORD),
+                is_active=True,
+            )
+            db.add(superadmin)
+            await db.commit()
+            logger.info("[MAIN] Superadmin user created successfully")
+        else:
+            logger.info("[MAIN] Superadmin user already exists")
+
     app.state.manager = ConnectionManager()
     logger.info("[MAIN] WebSocket manager initialized")
     yield
@@ -84,22 +103,24 @@ async def websocket_admin(
     
     # Verify user exists and is active
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.id == user_id))
+        result = await db.execute(select(User).where(User.id == user_id).options(selectinload(User.restaurant)))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             logger.warning("[WEBSOCKET] Admin connection rejected: User not found or inactive")
             await websocket.close(code=4001, reason="User not found or inactive")
             return
+        
+        restaurant_id = user.restaurant_id
     
     manager = websocket.app.state.manager
-    await manager.connect_admin(websocket)
+    await manager.connect_admin(websocket, restaurant_id)
     logger.info("[WEBSOCKET] Admin connected successfully", user_id=user_id)
     try:
         while True:
             data = await websocket.receive_text()
             logger.info("[WEBSOCKET] Admin received message", data=data[:100])
     except WebSocketDisconnect:
-        manager.disconnect_admin(websocket)
+        manager.disconnect_admin(websocket, restaurant_id)
         logger.info("[WEBSOCKET] Admin disconnected", user_id=user_id)
 
 
@@ -114,13 +135,15 @@ async def websocket_table(
     
     # Validate table exists
     async with async_session() as db:
-        result = await db.execute(select(Table).where(Table.id == table_id))
+        result = await db.execute(select(Table).where(Table.id == table_id).options(selectinload(Table.restaurant)))
         table = result.scalar_one_or_none()
         
         if not table:
             logger.warning("[WEBSOCKET] Table connection rejected: Table not found", table_id=table_id)
             await websocket.close(code=4004, reason="Table not found")
             return
+        
+        restaurant_id = table.restaurant_id
         
         # If token is provided, validate it (optional for customer connections)
         if token is not None and token != table.qr_token:
@@ -132,7 +155,7 @@ async def websocket_table(
                 return
     
     manager = websocket.app.state.manager
-    await manager.connect_table(websocket, table_id)
+    await manager.connect_table(websocket, table_id, restaurant_id)
     logger.info("[WEBSOCKET] Table connected successfully", table_id=table_id)
     try:
         while True:

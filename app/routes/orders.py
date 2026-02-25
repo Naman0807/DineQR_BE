@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, cast, String, func
 from sqlalchemy.orm import selectinload
 from typing import List
 from decimal import Decimal
 
 from app.database import get_db
 from app.models.models import (
-    Order, OrderItem, OrderSession, MenuItem, Table, User,
+    Order, OrderItem, OrderSession, MenuItem, Table, User, Restaurant,
     OrderStatus, OrderItemStatus, SessionStatus
 )
 from app.schemas import (
@@ -78,13 +78,102 @@ def serialize_order(order: Order) -> dict:
     }
 
 
-@router.post("/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+@router.get("/active", response_model=List[OrderResponse])
+async def get_active_orders(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    logger.api_request(SERVICE, "GET", "/active", skip=skip, limit=limit)
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.session).selectinload(OrderSession.table)
+        )
+        .join(OrderSession)
+        .where(
+            func.lower(cast(OrderSession.session_status, String)) == SessionStatus.ACTIVE.value,
+            OrderSession.restaurant_id == current_user.restaurant_id
+        )
+        .order_by(Order.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    orders = result.scalars().all()
+    logger.api_response(SERVICE, "GET", "/active", 200, count=len(orders))
+    return [serialize_order_response(order) for order in orders]
+
+
+@router.patch("/{order_id}/status", response_model=OrderResponse)
+async def update_order_status(
+    order_id: str, 
+    update: OrderUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+    manager: ConnectionManager = Depends(get_manager)
+):
+    logger.api_request(SERVICE, "PATCH", f"/{order_id}/status", order_id=order_id, status=update.status.value if update.status else None)
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.session).selectinload(OrderSession.table)
+        )
+        .join(OrderSession)
+        .where(
+            Order.id == order_id,
+            OrderSession.restaurant_id == current_user.restaurant_id
+        )
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        logger.api_error(SERVICE, "PATCH", f"/{order_id}/status", "Order not found", order_id=order_id)
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order.status = update.status
+    if update.status == OrderStatus.SERVED:
+        for item in order.items:
+            item.status = OrderItemStatus.COMPLETED
+
+    await db.commit()
+    await db.refresh(order)
+
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.session).selectinload(OrderSession.table)
+        )
+        .join(OrderSession)
+        .where(
+            Order.id == order_id,
+            OrderSession.restaurant_id == current_user.restaurant_id
+        )
+    )
+    order = result.scalar_one()
+
+    await manager.broadcast_order_updated(serialize_order(order), order.session.table_id, order.session.table.restaurant_id)
+    logger.api_response(SERVICE, "PATCH", f"/{order_id}/status", 200, order_id=order_id, status=update.status.value)
+
+    return serialize_order_response(order)
+
+
+@router.post("/{restaurant_slug}/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(
+    restaurant_slug: str,
     order: OrderCreate, 
     db: AsyncSession = Depends(get_db),
     manager: ConnectionManager = Depends(get_manager)
 ):
-    logger.api_request(SERVICE, "POST", "/", session_id=order.session_id, item_count=len(order.items))
+    logger.api_request(SERVICE, "POST", f"/{restaurant_slug}/", session_id=order.session_id, item_count=len(order.items))
+    
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
     result = await db.execute(
         select(OrderSession)
         .options(selectinload(OrderSession.table))
@@ -92,10 +181,12 @@ async def create_order(
     )
     session = result.scalar_one_or_none()
     if not session:
-        logger.api_error(SERVICE, "POST", "/", "Session not found", session_id=order.session_id)
+        logger.api_error(SERVICE, "POST", f"/{restaurant_slug}/", "Session not found", session_id=order.session_id)
         raise HTTPException(status_code=404, detail="Session not found")
+    if session.restaurant_id != restaurant.id:
+        raise HTTPException(status_code=403, detail="Session does not belong to this restaurant")
     if session.session_status != SessionStatus.ACTIVE:
-        logger.api_error(SERVICE, "POST", "/", "Session is not active", session_id=order.session_id)
+        logger.api_error(SERVICE, "POST", f"/{restaurant_slug}/", "Session is not active", session_id=order.session_id)
         raise HTTPException(status_code=400, detail="Session is not active")
 
     total_amount = Decimal("0.00")
@@ -140,130 +231,88 @@ async def create_order(
     )
     db_order = result.scalar_one()
 
-    await manager.broadcast_order_created(serialize_order(db_order), session.table_id)
-    logger.api_response(SERVICE, "POST", "/", 201, order_id=str(db_order.id), total_amount=float(total_amount))
+    await manager.broadcast_order_created(serialize_order(db_order), session.table_id, session.table.restaurant_id)
+    logger.api_response(SERVICE, "POST", f"/{restaurant_slug}/", 201, order_id=str(db_order.id), total_amount=float(total_amount))
 
     return serialize_order_response(db_order)
 
 
-@router.get("/session/{session_id}", response_model=List[OrderResponse])
-async def get_orders_by_session(session_id: str, db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", f"/session/{session_id}", session_id=session_id)
+@router.get("/{restaurant_slug}/session/{session_id}", response_model=List[OrderResponse])
+async def get_orders_by_session(restaurant_slug: str, session_id: str, db: AsyncSession = Depends(get_db)):
+    logger.api_request(SERVICE, "GET", f"/{restaurant_slug}/session/{session_id}", session_id=session_id)
+    
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
-        .where(Order.session_id == session_id)
-        .order_by(Order.created_at.desc())
-    )
-    orders = result.scalars().all()
-    logger.api_response(SERVICE, "GET", f"/session/{session_id}", 200, count=len(orders))
-    return [serialize_order_response(order) for order in orders]
-
-
-@router.get("/active", response_model=List[OrderResponse])
-async def get_active_orders(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
-):
-    logger.api_request(SERVICE, "GET", "/active", skip=skip, limit=limit)
-    result = await db.execute(
-        select(Order)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
-            selectinload(Order.session).selectinload(OrderSession.table)
-        )
         .join(OrderSession)
-        .where(OrderSession.session_status == SessionStatus.ACTIVE)
+        .where(
+            Order.session_id == session_id,
+            OrderSession.restaurant_id == restaurant.id
+        )
         .order_by(Order.created_at.desc())
-        .offset(skip)
-        .limit(limit)
     )
     orders = result.scalars().all()
-    logger.api_response(SERVICE, "GET", "/active", 200, count=len(orders))
+    logger.api_response(SERVICE, "GET", f"/{restaurant_slug}/session/{session_id}", 200, count=len(orders))
     return [serialize_order_response(order) for order in orders]
 
 
-@router.get("/{order_id}", response_model=OrderResponse)
-async def get_order(order_id: str, db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", f"/{order_id}", order_id=order_id)
+@router.get("/{restaurant_slug}/{order_id}", response_model=OrderResponse)
+async def get_order(restaurant_slug: str, order_id: str, db: AsyncSession = Depends(get_db)):
+    logger.api_request(SERVICE, "GET", f"/{restaurant_slug}/{order_id}", order_id=order_id)
+    
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
-        .where(Order.id == order_id)
+        .join(OrderSession)
+        .where(
+            Order.id == order_id,
+            OrderSession.restaurant_id == restaurant.id
+        )
     )
     order = result.scalar_one_or_none()
     if not order:
-        logger.api_error(SERVICE, "GET", f"/{order_id}", "Order not found", order_id=order_id)
+        logger.api_error(SERVICE, "GET", f"/{restaurant_slug}/{order_id}", "Order not found", order_id=order_id)
         raise HTTPException(status_code=404, detail="Order not found")
-    logger.api_response(SERVICE, "GET", f"/{order_id}", 200, order_id=order_id)
+    logger.api_response(SERVICE, "GET", f"/{restaurant_slug}/{order_id}", 200, order_id=order_id)
     return serialize_order_response(order)
 
 
-@router.patch("/{order_id}/status", response_model=OrderResponse)
-async def update_order_status(
-    order_id: str, 
-    update: OrderUpdate, 
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
-    manager: ConnectionManager = Depends(get_manager)
-):
-    logger.api_request(SERVICE, "PATCH", f"/{order_id}/status", order_id=order_id, status=update.status.value if update.status else None)
-    result = await db.execute(
-        select(Order)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
-            selectinload(Order.session).selectinload(OrderSession.table)
-        )
-        .where(Order.id == order_id)
-    )
-    order = result.scalar_one_or_none()
-    if not order:
-        logger.api_error(SERVICE, "PATCH", f"/{order_id}/status", "Order not found", order_id=order_id)
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    order.status = update.status
-    if update.status == OrderStatus.SERVED:
-        for item in order.items:
-            item.status = OrderItemStatus.COMPLETED
-
-    await db.commit()
-    await db.refresh(order)
-
-    result = await db.execute(
-        select(Order)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
-            selectinload(Order.session).selectinload(OrderSession.table)
-        )
-        .where(Order.id == order_id)
-    )
-    order = result.scalar_one()
-
-    await manager.broadcast_order_updated(serialize_order(order), order.session.table_id)
-    logger.api_response(SERVICE, "PATCH", f"/{order_id}/status", 200, order_id=order_id, status=update.status.value)
-
-    return serialize_order_response(order)
-
-
-@router.get("/sessions/{session_id}", response_model=OrderSessionWithOrdersResponse)
-async def get_session_with_orders(session_id: str, db: AsyncSession = Depends(get_db)):
-    logger.api_request(SERVICE, "GET", f"/sessions/{session_id}", session_id=session_id)
+@router.get("/{restaurant_slug}/sessions/{session_id}", response_model=OrderSessionWithOrdersResponse)
+async def get_session_with_orders(restaurant_slug: str, session_id: str, db: AsyncSession = Depends(get_db)):
+    logger.api_request(SERVICE, "GET", f"/{restaurant_slug}/sessions/{session_id}", session_id=session_id)
+    
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
     result = await db.execute(
         select(OrderSession)
         .options(
             selectinload(OrderSession.table),
             selectinload(OrderSession.orders).selectinload(Order.items).selectinload(OrderItem.menu_item)
         )
-        .where(OrderSession.id == session_id)
+        .where(
+            OrderSession.id == session_id,
+            OrderSession.restaurant_id == restaurant.id
+        )
     )
     session = result.scalar_one_or_none()
     if not session:
-        logger.api_error(SERVICE, "GET", f"/sessions/{session_id}", "Session not found", session_id=session_id)
+        logger.api_error(SERVICE, "GET", f"/{restaurant_slug}/sessions/{session_id}", "Session not found", session_id=session_id)
         raise HTTPException(status_code=404, detail="Session not found")
 
-    logger.api_response(SERVICE, "GET", f"/sessions/{session_id}", 200, session_id=session_id, order_count=len(session.orders))
+    logger.api_response(SERVICE, "GET", f"/{restaurant_slug}/sessions/{session_id}", 200, session_id=session_id, order_count=len(session.orders))
 
     return OrderSessionWithOrdersResponse(
         id=session.id,

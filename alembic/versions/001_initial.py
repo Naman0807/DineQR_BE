@@ -1,5 +1,5 @@
 # Initial empty database
-
+"""
 Revision ID: 001
 Revises:
 Create Date: 2024-01-01
@@ -16,6 +16,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    op.create_table(
+        'restaurants',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('name', sa.String(100), nullable=False),
+        sa.Column('slug', sa.String(100), nullable=False, unique=True),
+        sa.Column('status', sa.String(20), server_default='pending'),
+        sa.Column('created_at', sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
+        'users',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('username', sa.String(50), unique=True, nullable=False),
+        sa.Column('email', sa.String(100), unique=True, nullable=False),
+        sa.Column('hashed_password', sa.String(255), nullable=False),
+        sa.Column('role', sa.String(20), server_default='staff'),
+        sa.Column('is_active', sa.Boolean, server_default=sa.text('true')),
+        sa.Column('created_at', sa.DateTime, server_default=sa.func.now()),
+        sa.Column('updated_at', sa.DateTime, server_default=sa.func.now()),
+        sa.Column('restaurant_id', sa.String(36), nullable=True),
+    )
+
     op.create_table(
         'tables',
         sa.Column('id', sa.String(36), primary_key=True),
@@ -99,3 +121,5 @@ def downgrade() -> None:
     op.drop_table('menu_items')
     op.drop_table('menu_categories')
     op.drop_table('tables')
+    op.drop_table('users')
+    op.drop_table('restaurants')

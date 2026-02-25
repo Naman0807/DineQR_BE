@@ -78,6 +78,18 @@ async def get_current_admin_user(
     return current_user
 
 
+async def get_current_superadmin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Get the current user and verify they have superadmin role."""
+    if current_user.role != UserRole.SUPERADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized. Superadmin access required."
+        )
+    return current_user
+
+
 async def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
     db: AsyncSession = Depends(get_db),
