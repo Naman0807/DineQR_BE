@@ -1,0 +1,2 @@
+- need to create docker image for this
+- version only python 3.11.9
