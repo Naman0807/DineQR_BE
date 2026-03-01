@@ -8,7 +8,7 @@ import io
 import base64
 
 from app.database import get_db
-from app.models.models import MenuCategory, MenuItem, Table, User
+from app.models.models import MenuCategory, MenuItem, Restaurant, Table, User
 from app.schemas import (
     MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryResponse,
     MenuItemCreate, MenuItemUpdate, MenuItemResponse, MenuItemWithCategory,
@@ -21,15 +21,75 @@ router = APIRouter(prefix="/api/menu", tags=["Menu"])
 SERVICE = "menu"
 
 
-@router.get("/categories", response_model=List[MenuCategoryResponse])
-async def get_categories(
+@router.get("/public/{restaurant_slug}/categories", response_model=List[MenuCategoryResponse])
+async def get_public_categories(
+    restaurant_slug: str,
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
     db: AsyncSession = Depends(get_db)
 ):
+    logger.api_request(SERVICE, "GET", f"/public/{restaurant_slug}/categories", restaurant_slug=restaurant_slug)
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    result = await db.execute(
+        select(MenuCategory)
+        .where(MenuCategory.restaurant_id == restaurant.id)
+        .order_by(MenuCategory.display_order)
+        .offset(skip)
+        .limit(limit)
+    )
+    categories = result.scalars().all()
+    logger.api_response(SERVICE, "GET", f"/public/{restaurant_slug}/categories", 200, count=len(categories))
+    return categories
+
+
+@router.get("/public/{restaurant_slug}/items", response_model=List[MenuItemWithCategory])
+async def get_public_menu_items(
+    restaurant_slug: str,
+    available_only: bool = False,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db)
+):
+    logger.api_request(SERVICE, "GET", f"/public/{restaurant_slug}/items", restaurant_slug=restaurant_slug, available_only=available_only)
+    result = await db.execute(select(Restaurant).where(Restaurant.slug == restaurant_slug))
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    category_result = await db.execute(
+        select(MenuCategory.id).where(MenuCategory.restaurant_id == restaurant.id)
+    )
+    category_ids = [row[0] for row in category_result.fetchall()]
+    
+    if not category_ids:
+        logger.api_response(SERVICE, "GET", f"/public/{restaurant_slug}/items", 200, count=0)
+        return []
+    
+    query = select(MenuItem).options(selectinload(MenuItem.category)).where(MenuItem.category_id.in_(category_ids))
+    if available_only:
+        query = query.where(MenuItem.is_available == True)
+    query = query.order_by(MenuItem.category_id, MenuItem.name).offset(skip).limit(limit)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    logger.api_response(SERVICE, "GET", f"/public/{restaurant_slug}/items", 200, count=len(items))
+    return items
+
+
+@router.get("/categories", response_model=List[MenuCategoryResponse])
+async def get_categories(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
     logger.api_request(SERVICE, "GET", "/categories", skip=skip, limit=limit)
     result = await db.execute(
         select(MenuCategory)
+        .where(MenuCategory.restaurant_id == current_user.restaurant_id)
         .order_by(MenuCategory.display_order)
         .offset(skip)
         .limit(limit)
@@ -47,6 +107,7 @@ async def create_category(
 ):
     logger.api_request(SERVICE, "POST", "/categories", name=category.name)
     db_category = MenuCategory(**category.model_dump())
+    db_category.restaurant_id = current_user.restaurant_id
     db.add(db_category)
     await db.commit()
     await db.refresh(db_category)
@@ -62,10 +123,16 @@ async def update_category(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "PUT", f"/categories/{category_id}", category_id=category_id)
-    result = await db.execute(select(MenuCategory).where(MenuCategory.id == category_id))
+    result = await db.execute(
+        select(MenuCategory)
+        .options(selectinload(MenuCategory.restaurant))
+        .where(MenuCategory.id == category_id)
+    )
     db_category = result.scalar_one_or_none()
     if not db_category:
         logger.api_error(SERVICE, "PUT", f"/categories/{category_id}", "Category not found", category_id=category_id)
+        raise HTTPException(status_code=404, detail="Category not found")
+    if db_category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Category not found")
     for key, value in category.model_dump(exclude_unset=True).items():
         setattr(db_category, key, value)
@@ -82,10 +149,16 @@ async def delete_category(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "DELETE", f"/categories/{category_id}", category_id=category_id)
-    result = await db.execute(select(MenuCategory).where(MenuCategory.id == category_id))
+    result = await db.execute(
+        select(MenuCategory)
+        .options(selectinload(MenuCategory.restaurant))
+        .where(MenuCategory.id == category_id)
+    )
     db_category = result.scalar_one_or_none()
     if not db_category:
         logger.api_error(SERVICE, "DELETE", f"/categories/{category_id}", "Category not found", category_id=category_id)
+        raise HTTPException(status_code=404, detail="Category not found")
+    if db_category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Category not found")
     await db.delete(db_category)
     await db.commit()
@@ -97,10 +170,20 @@ async def get_menu_items(
     available_only: bool = False,
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "GET", "/items", available_only=available_only, skip=skip, limit=limit)
-    query = select(MenuItem).options(selectinload(MenuItem.category))
+    category_result = await db.execute(
+        select(MenuCategory.id).where(MenuCategory.restaurant_id == current_user.restaurant_id)
+    )
+    category_ids = [row[0] for row in category_result.fetchall()]
+    
+    if not category_ids:
+        logger.api_response(SERVICE, "GET", "/items", 200, count=0)
+        return []
+    
+    query = select(MenuItem).options(selectinload(MenuItem.category)).where(MenuItem.category_id.in_(category_ids))
     if available_only:
         query = query.where(MenuItem.is_available == True)
     query = query.order_by(MenuItem.category_id, MenuItem.name).offset(skip).limit(limit)
@@ -128,9 +211,16 @@ async def create_menu_item(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "POST", "/items", name=item.name, category_id=item.category_id)
-    result = await db.execute(select(MenuCategory).where(MenuCategory.id == item.category_id))
-    if not result.scalar_one_or_none():
+    result = await db.execute(
+        select(MenuCategory)
+        .options(selectinload(MenuCategory.restaurant))
+        .where(MenuCategory.id == item.category_id)
+    )
+    db_category = result.scalar_one_or_none()
+    if not db_category:
         logger.api_error(SERVICE, "POST", "/items", "Category not found", category_id=item.category_id)
+        raise HTTPException(status_code=404, detail="Category not found")
+    if db_category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Category not found")
     db_item = MenuItem(**item.model_dump())
     db.add(db_item)
@@ -148,10 +238,16 @@ async def update_menu_item(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "PUT", f"/items/{item_id}", item_id=item_id)
-    result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
+    result = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.category).selectinload(MenuCategory.restaurant))
+        .where(MenuItem.id == item_id)
+    )
     db_item = result.scalar_one_or_none()
     if not db_item:
         logger.api_error(SERVICE, "PUT", f"/items/{item_id}", "Menu item not found", item_id=item_id)
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if db_item.category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
     for key, value in item.model_dump(exclude_unset=True).items():
         setattr(db_item, key, value)
@@ -168,10 +264,16 @@ async def delete_menu_item(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "DELETE", f"/items/{item_id}", item_id=item_id)
-    result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
+    result = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.category).selectinload(MenuCategory.restaurant))
+        .where(MenuItem.id == item_id)
+    )
     db_item = result.scalar_one_or_none()
     if not db_item:
         logger.api_error(SERVICE, "DELETE", f"/items/{item_id}", "Menu item not found", item_id=item_id)
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if db_item.category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
     await db.delete(db_item)
     await db.commit()
@@ -186,10 +288,16 @@ async def toggle_item_availability(
     current_user: User = Depends(get_current_admin_user)
 ):
     logger.api_request(SERVICE, "PATCH", f"/items/{item_id}/availability", item_id=item_id, is_available=is_available)
-    result = await db.execute(select(MenuItem).where(MenuItem.id == item_id))
+    result = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.category).selectinload(MenuCategory.restaurant))
+        .where(MenuItem.id == item_id)
+    )
     db_item = result.scalar_one_or_none()
     if not db_item:
         logger.api_error(SERVICE, "PATCH", f"/items/{item_id}/availability", "Menu item not found", item_id=item_id)
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if db_item.category.restaurant_id != current_user.restaurant_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
     db_item.is_available = is_available
     await db.commit()

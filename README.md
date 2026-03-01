@@ -8,7 +8,7 @@ Real-time QR code-based restaurant ordering system.
 - Real-time order updates via WebSockets
 - Menu management
 - Order tracking and management
-- Bill generation and payment tracking
+- Bill genera  tion and payment tracking
 - Admin dashboard support
 
 ## Tech Stack
@@ -48,12 +48,14 @@ dineQR/
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone <repository-url>
    cd dineQR
    ```
 
 2. Create virtual environment and install dependencies:
+
    ```bash
    cd backend
    python -m venv venv
@@ -62,12 +64,15 @@ dineQR/
    ```
 
 3. Configure environment variables:
+
    ```bash
    cp .env.example .env
    ```
+
    Edit `.env` with your database credentials and secret key.
 
 4. Run database migrations:
+
    ```bash
    alembic upgrade head
    ```
@@ -79,19 +84,19 @@ dineQR/
 
 ## API Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /` | API status |
-| `GET /health` | Health check |
-| `WS /ws/admin` | Admin WebSocket connection |
+| Endpoint                  | Description                |
+| ------------------------- | -------------------------- |
+| `GET /`                   | API status                 |
+| `GET /health`             | Health check               |
+| `WS /ws/admin`            | Admin WebSocket connection |
 | `WS /ws/table/{table_id}` | Table WebSocket connection |
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `SECRET_KEY` | Application secret key |
+| Variable       | Description                            |
+| -------------- | -------------------------------------- |
+| `DATABASE_URL` | PostgreSQL connection string           |
+| `SECRET_KEY`   | Application secret key                 |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) |
 
 ## License

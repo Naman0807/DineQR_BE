@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     CORS_ORIGINS: str = "http://localhost:3000"
     DEBUG: bool = False
+    SUPERADMIN_USERNAME: str
+    SUPERADMIN_PASSWORD: str
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -2,7 +2,7 @@ import uuid
 import secrets
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String, Text, Integer, Numeric, Boolean, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, Text, Integer, Numeric, Boolean, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -49,8 +49,30 @@ class PaymentMethod(str, enum.Enum):
 
 
 class UserRole(str, enum.Enum):
+    SUPERADMIN = "superadmin"
     ADMIN = "admin"
     STAFF = "staff"
+
+
+class RestaurantStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    DEACTIVATED = "deactivated"
+
+
+class Restaurant(Base):
+    __tablename__ = "restaurants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    status: Mapped[RestaurantStatus] = mapped_column(SQLEnum(RestaurantStatus), default=RestaurantStatus.PENDING)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    users: Mapped[list["User"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
+    tables: Mapped[list["Table"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
+    menu_categories: Mapped[list["MenuCategory"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
+    order_sessions: Mapped[list["OrderSession"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -64,18 +86,26 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
+
+    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="users")
 
 
 class Table(Base):
     __tablename__ = "tables"
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "table_number", name="uq_tables_restaurant_id_table_number"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    table_number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    table_number: Mapped[int] = mapped_column(Integer, nullable=False)
     qr_token: Mapped[str] = mapped_column(String(50), unique=True, default=generate_qr_token)
     status: Mapped[TableStatus] = mapped_column(SQLEnum(TableStatus), default=TableStatus.AVAILABLE)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     sessions: Mapped[list["OrderSession"]] = relationship(back_populates="table", cascade="all, delete-orphan")
+    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="tables")
 
 
 class MenuCategory(Base):
@@ -85,8 +115,10 @@ class MenuCategory(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     items: Mapped[list["MenuItem"]] = relationship(back_populates="category", cascade="all, delete-orphan")
+    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="menu_categories")
 
 
 class MenuItem(Base):
@@ -114,10 +146,12 @@ class OrderSession(Base):
     session_status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus), default=SessionStatus.ACTIVE)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     table: Mapped["Table"] = relationship(back_populates="sessions")
     orders: Mapped[list["Order"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     bill: Mapped["Bill | None"] = relationship(back_populates="session", uselist=False)
+    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="order_sessions")
 
 
 class Order(Base):
