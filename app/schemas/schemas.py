@@ -150,6 +150,7 @@ class OrderResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemResponse]
+    table_number: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -192,6 +193,7 @@ class BillResponse(BaseModel):
     payment_method: Optional[PaymentMethod]
     created_at: datetime
     paid_at: Optional[datetime]
+    table_number: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -202,7 +204,51 @@ class BillWithOrdersResponse(BillResponse):
     model_config = ConfigDict(from_attributes=True)
 
 
+
 class OrderSessionWithOrdersResponse(OrderSessionResponse):
     orders: list[OrderResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Restaurant Schemas
+class RestaurantBase(BaseModel):
+    name: str
+    tax: float = 10.00
+
+
+class RestaurantCreate(RestaurantBase):
+    slug: str
+
+
+class RestaurantUpdate(BaseModel):
+    name: Optional[str] = None
+    tax: Optional[float] = None
+    slug: Optional[str] = None
+
+
+class RestaurantResponse(RestaurantBase):
+    id: str
+    slug: str
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Settings Schemas
+class RestaurantSettingsUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    tax: Optional[float] = None
+
+
+class RestaurantSettingsResponse(BaseModel):
+    restaurant_id: str
+    restaurant_name: str
+    restaurant_slug: str
+    restaurant_tax: float
+    admin_email: str
+    admin_phone: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import String, Text, Integer, Numeric, Boolean, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 from app.database import Base
 import enum
 
@@ -66,7 +67,8 @@ class Restaurant(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-    status: Mapped[RestaurantStatus] = mapped_column(SQLEnum(RestaurantStatus), default=RestaurantStatus.PENDING)
+    status: Mapped[RestaurantStatus] = mapped_column(SQLEnum(RestaurantStatus, native_enum=False), default=RestaurantStatus.PENDING)
+    tax: Mapped[float] = mapped_column(Numeric(5, 2), default=Decimal("10.00"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     users: Mapped[list["User"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
@@ -87,10 +89,11 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), default=UserRole.STAFF)
+    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole, native_enum=False), default=UserRole.STAFF)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="users")
@@ -105,7 +108,7 @@ class Table(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     table_number: Mapped[int] = mapped_column(Integer, nullable=False)
     qr_token: Mapped[str] = mapped_column(String(50), unique=True, default=generate_qr_token)
-    status: Mapped[TableStatus] = mapped_column(SQLEnum(TableStatus), default=TableStatus.AVAILABLE)
+    status: Mapped[TableStatus] = mapped_column(SQLEnum(TableStatus, native_enum=False), default=TableStatus.AVAILABLE)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
@@ -150,7 +153,7 @@ class OrderSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     table_id: Mapped[str] = mapped_column(String(36), ForeignKey("tables.id", ondelete="CASCADE"), nullable=False)
-    session_status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus), default=SessionStatus.ACTIVE)
+    session_status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus, native_enum=False), default=SessionStatus.ACTIVE)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
@@ -166,7 +169,7 @@ class Order(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("order_sessions.id", ondelete="CASCADE"), nullable=False)
-    status: Mapped[OrderStatus] = mapped_column(SQLEnum(OrderStatus), default=OrderStatus.RECEIVED)
+    status: Mapped[OrderStatus] = mapped_column(SQLEnum(OrderStatus, native_enum=False), default=OrderStatus.RECEIVED)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -175,6 +178,13 @@ class Order(Base):
     session: Mapped["OrderSession"] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="orders")
+
+    @hybrid_property
+    def table_number(self) -> int | None:
+        """Get table number from the session's table."""
+        if self.session and self.session.table:
+            return self.session.table.table_number
+        return None
 
 
 class OrderItem(Base):
@@ -186,7 +196,7 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     special_instructions: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    status: Mapped[OrderItemStatus] = mapped_column(SQLEnum(OrderItemStatus), default=OrderItemStatus.PENDING)
+    status: Mapped[OrderItemStatus] = mapped_column(SQLEnum(OrderItemStatus, native_enum=False), default=OrderItemStatus.PENDING)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     order: Mapped["Order"] = relationship(back_populates="items")
@@ -203,14 +213,21 @@ class Bill(Base):
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"))
     final_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    payment_status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus), default=PaymentStatus.UNPAID)
-    payment_method: Mapped[PaymentMethod | None] = mapped_column(SQLEnum(PaymentMethod), nullable=True)
+    payment_status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus, native_enum=False), default=PaymentStatus.UNPAID)
+    payment_method: Mapped[PaymentMethod | None] = mapped_column(SQLEnum(PaymentMethod, native_enum=False), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     session: Mapped["OrderSession"] = relationship(back_populates="bill")
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="bills")
+
+    @hybrid_property
+    def table_number(self) -> int | None:
+        """Get table number from the session's table."""
+        if self.session and self.session.table:
+            return self.session.table.table_number
+        return None
 
 
 class Customer(Base):

@@ -50,6 +50,7 @@ def serialize_order_response(order: Order) -> OrderResponse:
         created_at=order.created_at,
         updated_at=order.updated_at,
         items=[serialize_order_item(item) for item in order.items],
+        table_number=order.table_number,
     )
 
 
@@ -248,7 +249,10 @@ async def get_orders_by_session(restaurant_slug: str, session_id: str, db: Async
     
     result = await db.execute(
         select(Order)
-        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.session).selectinload(OrderSession.table)
+        )
         .join(OrderSession)
         .where(
             Order.session_id == session_id,
@@ -272,7 +276,10 @@ async def get_order(restaurant_slug: str, order_id: str, db: AsyncSession = Depe
     
     result = await db.execute(
         select(Order)
-        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.session).selectinload(OrderSession.table)
+        )
         .join(OrderSession)
         .where(
             Order.id == order_id,

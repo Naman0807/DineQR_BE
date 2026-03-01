@@ -33,6 +33,7 @@ class RegisterRequest(BaseModel):
     password: str
     restaurant_name: str | None = None
     role: str = "admin"
+    phone_number: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -47,6 +48,8 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     restaurant_id: str | None = None
+    restaurant_name: str | None = None
+    phone_number: str | None = None
 
     class Config:
         from_attributes = True
@@ -160,6 +163,7 @@ async def register(register_data: RegisterRequest, db: AsyncSession = Depends(ge
     new_user = User(
         username=register_data.username,
         email=register_data.email,
+        phone_number=register_data.phone_number,
         hashed_password=hashed_password,
         role=role,
         restaurant_id=restaurant_id,
@@ -177,6 +181,22 @@ async def register(register_data: RegisterRequest, db: AsyncSession = Depends(ge
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current authenticated user info."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.database import get_db
+    
+    # Get fresh user with restaurant loaded
+    async for db in get_db():
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.restaurant))
+            .where(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        break
+    
+    restaurant_name = user.restaurant.name if user and user.restaurant else None
+    
     logger.api_request(SERVICE, "GET", "/me", user_id=str(current_user.id))
     logger.api_response(SERVICE, "GET", "/me", 200, user_id=str(current_user.id))
     return UserResponse(
@@ -186,4 +206,6 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         role=current_user.role.value,
         is_active=current_user.is_active,
         restaurant_id=current_user.restaurant_id,
+        restaurant_name=restaurant_name,
+        phone_number=current_user.phone_number,
     )

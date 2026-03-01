@@ -130,7 +130,8 @@ async def get_bill_by_session(restaurant_slug: str, session_id: str, db: AsyncSe
             total_amount=order.total_amount,
             created_at=order.created_at,
             updated_at=order.updated_at,
-            items=items_data
+            items=items_data,
+            table_number=order.table_number,
         ))
     
     return BillWithOrdersResponse(
@@ -196,6 +197,7 @@ async def get_bill_by_session_for_admin(
                 created_at=order.created_at,
                 updated_at=order.updated_at,
                 items=items_data,
+                table_number=order.table_number,
             )
         )
 

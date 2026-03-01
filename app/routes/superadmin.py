@@ -11,6 +11,7 @@ from app.auth import get_password_hash
 from app.auth.dependencies import get_current_superadmin
 from app.database import get_db
 from app.models.models import Restaurant, RestaurantStatus, User, UserRole
+from app.schemas.schemas import RestaurantSettingsUpdate, RestaurantSettingsResponse
 
 router = APIRouter(prefix="/api/superadmin", tags=["Superadmin"])
 
@@ -220,3 +221,91 @@ async def delete_restaurant(
 
     await db.delete(restaurant)
     await db.commit()
+
+
+@router.get("/restaurants/{restaurant_id}/settings", response_model=RestaurantSettingsResponse)
+async def get_restaurant_settings(
+    restaurant_id: str,
+    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get settings for a specific restaurant (Superadmin)."""
+    result = await db.execute(
+        select(Restaurant).where(Restaurant.id == restaurant_id)
+    )
+    restaurant = result.scalar_one_or_none()
+    
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    
+    result = await db.execute(
+        select(User).where(User.restaurant_id == restaurant_id).where(User.role == UserRole.ADMIN)
+    )
+    admin_user = result.scalar_one_or_none()
+    
+    if not admin_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant admin not found")
+    
+    return RestaurantSettingsResponse(
+        restaurant_id=restaurant.id,
+        restaurant_name=restaurant.name,
+        restaurant_slug=restaurant.slug,
+        restaurant_tax=float(restaurant.tax),
+        admin_email=admin_user.email,
+        admin_phone=admin_user.phone_number,
+    )
+
+
+@router.put("/restaurants/{restaurant_id}/settings", response_model=RestaurantSettingsResponse)
+async def update_restaurant_settings(
+    restaurant_id: str,
+    settings_data: RestaurantSettingsUpdate,
+    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update settings for a specific restaurant (Superadmin)."""
+    result = await db.execute(
+        select(Restaurant).where(Restaurant.id == restaurant_id)
+    )
+    restaurant = result.scalar_one_or_none()
+    
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    
+    result = await db.execute(
+        select(User).where(User.restaurant_id == restaurant_id).where(User.role == UserRole.ADMIN)
+    )
+    admin_user = result.scalar_one_or_none()
+    
+    if not admin_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant admin not found")
+    
+    if settings_data.name is not None:
+        restaurant.name = settings_data.name
+    if settings_data.tax is not None:
+        restaurant.tax = settings_data.tax
+    
+    if settings_data.email is not None:
+        result = await db.execute(
+            select(User).where(User.email == settings_data.email).where(User.id != admin_user.id)
+        )
+        existing_user = result.scalar_one_or_none()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered by another user"
+            )
+        admin_user.email = settings_data.email
+    
+    await db.commit()
+    await db.refresh(restaurant)
+    await db.refresh(admin_user)
+    
+    return RestaurantSettingsResponse(
+        restaurant_id=restaurant.id,
+        restaurant_name=restaurant.name,
+        restaurant_slug=restaurant.slug,
+        restaurant_tax=float(restaurant.tax),
+        admin_email=admin_user.email,
+        admin_phone=admin_user.phone_number,
+    )
