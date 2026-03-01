@@ -92,7 +92,7 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
                 detail="Your restaurant account has been deactivated.",
             )
     
-    access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    access_token = create_access_token(data={"sub": user.id, "role": user.role.value, "restaurant_id": user.restaurant_id})
     logger.api_response(SERVICE, "POST", "/login", 200, user_id=str(user.id))
     
     return TokenResponse(access_token=access_token)
