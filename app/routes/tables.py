@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, cast, String, func
+from sqlalchemy import select, cast, String, func, delete
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from typing import List
 import qrcode
@@ -8,7 +9,7 @@ import io
 import base64
 
 from app.database import get_db
-from app.models.models import Table, OrderSession, SessionStatus, TableStatus, User, Restaurant
+from app.models.models import Table, OrderSession, SessionStatus, TableStatus, User, Restaurant, Bill
 from app.schemas import TableCreate, TableResponse, TableWithQRResponse
 from app.auth.dependencies import get_current_admin_user
 from app.utils.logger import logger
@@ -161,7 +162,9 @@ async def delete_table(
 ):
     logger.api_request(SERVICE, "DELETE", f"/{table_id}", table_id=table_id)
     result = await db.execute(
-        select(Table).where(
+        select(Table)
+        .options(selectinload(Table.sessions))
+        .where(
             Table.id == table_id,
             Table.restaurant_id == current_user.restaurant_id
         )
@@ -170,6 +173,16 @@ async def delete_table(
     if not table:
         logger.api_error(SERVICE, "DELETE", f"/{table_id}", "Table not found", table_id=table_id)
         raise HTTPException(status_code=404, detail="Table not found")
+    
+    # Get all session IDs for this table
+    session_ids = [session.id for session in table.sessions]
+    
+    # Delete related bills first to avoid NOT NULL constraint violation on session_id
+    if session_ids:
+        await db.execute(
+            delete(Bill).where(Bill.session_id.in_(session_ids))
+        )
+    
     await db.delete(table)
     await db.commit()
     logger.api_response(SERVICE, "DELETE", f"/{table_id}", 204, table_id=table_id)
