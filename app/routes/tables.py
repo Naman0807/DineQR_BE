@@ -7,6 +7,8 @@ from typing import List
 import qrcode
 import io
 import base64
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
 
 from app.database import get_db
 from app.models.models import Table, OrderSession, SessionStatus, TableStatus, User, Restaurant, Bill
@@ -18,14 +20,81 @@ router = APIRouter(prefix="/api/tables", tags=["Tables"])
 SERVICE = "tables"
 
 
-def generate_qr_code_base64(qr_token: str, restaurant_slug: str, base_url: str = "http://localhost:5173") -> str:
+def generate_qr_code_base64(
+    qr_token: str, 
+    restaurant_slug: str, 
+    restaurant_name: str = None,
+    table_number: int = None,
+    base_url: str = "http://localhost:5173"
+) -> str:
+    """Generate QR code with text overlay (restaurant name, table number, URL)."""
     qr_url = f"{base_url}/{restaurant_slug}/menu?table={qr_token}"
+    
+    # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=2)
     qr.add_data(qr_url)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+    
+    # Convert QR to PIL Image
+    qr_pil = qr_img.convert("RGBA")
+    
+    # Calculate dimensions
+    qr_width, qr_height = qr_pil.size
+    
+    # Text area heights
+    top_text_height = 60 if restaurant_name else 20
+    bottom_text_height = 60 if table_number else 40
+    
+    # Total image dimensions
+    total_width = qr_width
+    total_height = qr_height + top_text_height + bottom_text_height
+    
+    # Create new image with white background
+    final_img = Image.new("RGBA", (total_width, total_height), "white")
+    
+    # Paste QR code in the middle
+    qr_y_offset = top_text_height
+    final_img.paste(qr_pil, (0, qr_y_offset))
+    
+    # Draw text on image
+    draw = ImageDraw.Draw(final_img)
+    
+    # Use default font (load_default works across all platforms)
+    title_font = ImageFont.load_default()
+    small_font = ImageFont.load_default()
+    url_font = ImageFont.load_default()
+    
+    # Draw restaurant name at top (centered)
+    if restaurant_name:
+        # Wrap text if too long
+        max_width = total_width - 20
+        wrapped_name = textwrap.fill(restaurant_name, width=25)
+        bbox = draw.textbbox((0, 0), wrapped_name, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        text_x = (total_width - text_width) // 2
+        draw.text((text_x, 10), wrapped_name, fill="black", font=title_font)
+    
+    # Draw "Table: X" below restaurant name
+    if table_number:
+        table_text = f"Table: {table_number}"
+        bbox = draw.textbbox((0, 0), table_text, font=small_font)
+        text_width = bbox[2] - bbox[0]
+        text_x = (total_width - text_width) // 2
+        draw.text((text_x, top_text_height - 20 if restaurant_name else 30), table_text, fill="black", font=small_font)
+    
+    # Draw URL at bottom (centered)
+    url_y = total_height - 25
+    # Wrap URL if too long
+    wrapped_url = textwrap.fill(qr_url, width=40)
+    bbox = draw.textbbox((0, 0), wrapped_url, font=url_font)
+    text_width = bbox[2] - bbox[0]
+    text_x = (total_width - text_width) // 2
+    draw.text((text_x, url_y), wrapped_url, fill="gray", font=url_font)
+    
+    # Save to buffer
     buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
+    final_img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
 
@@ -88,7 +157,12 @@ async def create_table(
             detail="Table number already exists for this restaurant.",
         )
     await db.refresh(db_table)
-    qr_code_url = generate_qr_code_base64(db_table.qr_token, restaurant.slug)
+    qr_code_url = generate_qr_code_base64(
+        db_table.qr_token, 
+        restaurant.slug,
+        restaurant_name=restaurant.name,
+        table_number=db_table.table_number
+    )
     logger.api_response(SERVICE, "POST", "/", 201, table_id=str(db_table.id), table_number=db_table.table_number)
     return TableWithQRResponse(**{**db_table.__dict__, "restaurant_slug": restaurant.slug, "qr_code_url": qr_code_url})
 
@@ -149,7 +223,12 @@ async def get_table_qr(
     restaurant = restaurant_result.scalar_one_or_none()
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
-    qr_code_url = generate_qr_code_base64(table.qr_token, restaurant.slug)
+    qr_code_url = generate_qr_code_base64(
+        table.qr_token, 
+        restaurant.slug,
+        restaurant_name=restaurant.name,
+        table_number=table.table_number
+    )
     logger.api_response(SERVICE, "GET", f"/{table_id}/qr", 200, table_id=table_id)
     return TableWithQRResponse(**{**table.__dict__, "restaurant_slug": restaurant.slug, "qr_code_url": qr_code_url})
 

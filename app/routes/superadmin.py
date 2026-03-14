@@ -280,14 +280,14 @@ async def update_restaurant_settings(
     if not admin_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant admin not found")
     
-    if settings_data.name is not None:
-        restaurant.name = settings_data.name
-    if settings_data.tax is not None:
-        restaurant.tax = settings_data.tax
+    if settings_data.restaurant_name is not None:
+        restaurant.name = settings_data.restaurant_name
+    if settings_data.restaurant_tax is not None:
+        restaurant.tax = settings_data.restaurant_tax
     
-    if settings_data.email is not None:
+    if settings_data.admin_email is not None:
         result = await db.execute(
-            select(User).where(User.email == settings_data.email).where(User.id != admin_user.id)
+            select(User).where(User.email == settings_data.admin_email).where(User.id != admin_user.id)
         )
         existing_user = result.scalar_one_or_none()
         if existing_user:
@@ -295,7 +295,11 @@ async def update_restaurant_settings(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered by another user"
             )
-        admin_user.email = settings_data.email
+        admin_user.email = settings_data.admin_email
+    
+    # Handle admin_phone update
+    if settings_data.admin_phone is not None:
+        admin_user.phone_number = settings_data.admin_phone
     
     await db.commit()
     await db.refresh(restaurant)

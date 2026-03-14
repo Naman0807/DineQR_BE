@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+import phonenumbers
 
 from app.database import get_db
 from app.models.models import User, UserRole, Restaurant, RestaurantStatus
@@ -33,7 +34,27 @@ class RegisterRequest(BaseModel):
     password: str
     restaurant_name: str | None = None
     role: str = "admin"
-    phone_number: str | None = None
+    phone_number: str
+
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone_number(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Phone number is required")
+        cleaned = v.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        digits = ''.join(filter(str.isdigit, cleaned))
+        if len(digits) < 10:
+            raise ValueError("Phone number must have at least 10 digits")
+        try:
+            parsed = phonenumbers.parse(v, None)
+            if not phonenumbers.is_valid_number(parsed):
+                parsed = phonenumbers.parse(f"+1{v}", None)
+                if not phonenumbers.is_valid_number(parsed):
+                    raise ValueError("Invalid phone number format")
+        except phonenumbers.NumberParseException:
+            if len(digits) < 10:
+                raise ValueError("Phone number must have at least 10 digits")
+        return v
 
 
 class TokenResponse(BaseModel):
@@ -125,6 +146,18 @@ async def register(register_data: RegisterRequest, db: AsyncSession = Depends(ge
                 detail="Email already registered",
             )
     
+    if register_data.phone_number:
+        result = await db.execute(
+            select(User).where(User.phone_number == register_data.phone_number)
+        )
+        existing_phone = result.scalar_one_or_none()
+        if existing_phone:
+            logger.api_error(SERVICE, "POST", "/register", "Phone already registered", phone=register_data.phone_number)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered",
+            )
+    
     try:
         role = UserRole(register_data.role.lower())
     except ValueError:
@@ -181,23 +214,19 @@ async def register(register_data: RegisterRequest, db: AsyncSession = Depends(ge
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current authenticated user info."""
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    from app.database import get_db
-    
-    # Get fresh user with restaurant loaded
-    async for db in get_db():
-        result = await db.execute(
-            select(User)
-            .options(selectinload(User.restaurant))
-            .where(User.id == current_user.id)
-        )
-        user = result.scalar_one_or_none()
-        break
-    
-    restaurant_name = user.restaurant.name if user and user.restaurant else None
-    
     logger.api_request(SERVICE, "GET", "/me", user_id=str(current_user.id))
+    
+    # Get restaurant name if restaurant_id exists
+    restaurant_name = None
+    if current_user.restaurant_id:
+        async for db in get_db():
+            result = await db.execute(
+                select(Restaurant).where(Restaurant.id == current_user.restaurant_id)
+            )
+            restaurant = result.scalar_one_or_none()
+            restaurant_name = restaurant.name if restaurant else None
+            break
+    
     logger.api_response(SERVICE, "GET", "/me", 200, user_id=str(current_user.id))
     return UserResponse(
         id=str(current_user.id),

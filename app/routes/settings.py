@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 
 from app.database import get_db
@@ -61,6 +61,10 @@ async def get_settings(
         restaurant_tax=float(restaurant.tax),
         admin_email=admin_user.email,
         admin_phone=admin_user.phone_number,
+        address=restaurant.address,
+        phone=restaurant.phone,
+        logo_url=restaurant.logo_url,
+        description=restaurant.description,
     )
 
 
@@ -92,23 +96,49 @@ async def update_settings(
             detail="Restaurant not found"
         )
     
-    if settings_data.name is not None:
-        restaurant.name = settings_data.name
-    if settings_data.tax is not None:
-        restaurant.tax = settings_data.tax
+    if settings_data.restaurant_name is not None:
+        restaurant.name = settings_data.restaurant_name
+    if settings_data.restaurant_tax is not None:
+        restaurant.tax = settings_data.restaurant_tax
+    if settings_data.address is not None:
+        restaurant.address = settings_data.address
+    if settings_data.logo_url is not None:
+        restaurant.logo_url = settings_data.logo_url
+    if settings_data.description is not None:
+        restaurant.description = settings_data.description
     
-    if settings_data.email is not None:
+    if settings_data.phone is not None:
+        if current_user.role != UserRole.SUPERADMIN:
+            logger.api_error(SERVICE, "PUT", "", "Only superadmin can update phone", user_id=str(current_user.id))
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmin can update phone number"
+            )
+        if not settings_data.phone:
+            logger.api_error(SERVICE, "PUT", "", "Phone number is required", user_id=str(current_user.id))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number is required"
+            )
+        restaurant.phone = settings_data.phone
+        current_user.phone_number = settings_data.phone
+    
+    if settings_data.admin_email is not None:
         result = await db.execute(
-            select(User).where(User.email == settings_data.email).where(User.id != current_user.id)
+            select(User).where(User.email == settings_data.admin_email).where(User.id != current_user.id)
         )
         existing_user = result.scalar_one_or_none()
         if existing_user:
-            logger.api_error(SERVICE, "PUT", "", "Email already in use", email=settings_data.email)
+            logger.api_error(SERVICE, "PUT", "", "Email already in use", email=settings_data.admin_email)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered by another user"
             )
-        current_user.email = settings_data.email
+        current_user.email = settings_data.admin_email
+    
+    # Handle admin_phone update (for non-superadmin users)
+    if settings_data.admin_phone is not None:
+        current_user.phone_number = settings_data.admin_phone
     
     await db.commit()
     await db.refresh(restaurant)
@@ -123,4 +153,8 @@ async def update_settings(
         restaurant_tax=float(restaurant.tax),
         admin_email=current_user.email,
         admin_phone=current_user.phone_number,
+        address=restaurant.address,
+        phone=restaurant.phone,
+        logo_url=restaurant.logo_url,
+        description=restaurant.description,
     )

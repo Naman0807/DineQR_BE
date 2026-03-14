@@ -69,6 +69,10 @@ class Restaurant(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     status: Mapped[RestaurantStatus] = mapped_column(SQLEnum(RestaurantStatus, native_enum=False), default=RestaurantStatus.PENDING)
     tax: Mapped[float] = mapped_column(Numeric(5, 2), default=Decimal("10.00"))
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     users: Mapped[list["User"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")

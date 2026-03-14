@@ -238,9 +238,14 @@ class RestaurantResponse(RestaurantBase):
 
 # Settings Schemas
 class RestaurantSettingsUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    tax: Optional[float] = None
+    restaurant_name: Optional[str] = None
+    admin_email: Optional[str] = None
+    admin_phone: Optional[str] = None
+    restaurant_tax: Optional[float] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    logo_url: Optional[str] = None
+    description: Optional[str] = None
 
 
 class RestaurantSettingsResponse(BaseModel):
@@ -250,5 +255,9 @@ class RestaurantSettingsResponse(BaseModel):
     restaurant_tax: float
     admin_email: str
     admin_phone: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    logo_url: Optional[str] = None
+    description: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

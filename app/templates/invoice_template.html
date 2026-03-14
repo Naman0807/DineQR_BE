@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Invoice - {{ restaurant_name }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 10px;
+            color: #333;
+        }
+
+        .header-table,
+        .info-table,
+        .items-table,
+        .totals-table,
+        .footer-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+
+        .restaurant-name {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .invoice-title {
+            font-size: 18px;
+            text-align: right;
+            font-weight: bold;
+            color: #666;
+        }
+
+        .info-table td {
+            padding: 4px;
+            border: 1px solid #eee;
+        }
+
+        .items-table th {
+            background-color: #444;
+            color: #fff;
+            padding: 6px;
+            text-align: left;
+        }
+
+        .items-table td {
+            padding: 6px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .totals-table td {
+            padding: 4px;
+        }
+
+        .total-row td {
+            border-top: 1px solid #333;
+            font-weight: bold;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <table class="header-table">
+        <tr>
+            <td>
+                <div class="restaurant-name">{{ restaurant_name }}</div>
+                <div>
+                    {% if restaurant_address %}{{ restaurant_address }}<br />{% endif %}
+                    {% if restaurant_phone %}Phone: {{ restaurant_phone }}{% endif %}
+                </div>
+            </td>
+            <td class="invoice-title">INVOICE</td>
+        </tr>
+    </table>
+
+    <table class="info-table">
+        <tr>
+            <td><strong>Bill Date:</strong> {{ bill_date }}</td>
+            <td><strong>Table No:</strong> {{ table_number }}</td>
+        </tr>
+        <tr>
+            <td><strong>Status:</strong> {{ payment_status }}</td>
+            <td><strong>Method:</strong> {{ payment_method or 'N/A' }}</td>
+        </tr>
+    </table>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th class="text-center">Qty</th>
+                <th class="text-right">Price</th>
+                <th class="text-right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            {% for item in order['items'] %}
+            <tr>
+                <td>{{ item['menu_item_name'] }}</td>
+                <td class="text-center">{{ item['quantity'] }}</td>
+                <td class="text-right">Rs. {{ "%.2f"|format(item['unit_price']) }}</td>
+                <td class="text-right">Rs. {{ "%.2f"|format(item['unit_price'] * item['quantity']) }}</td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table style="width: 250px; margin-left: auto;" class="totals-table">
+        <tr>
+            <td class="text-right">Subtotal:</td>
+            <td class="text-right">Rs. {{ "%.2f"|format(subtotal) }}</td>
+        </tr>
+        <tr>
+            <td class="text-right">Tax:</td>
+            <td class="text-right">Rs. {{ "%.2f"|format(tax_amount) }}</td>
+        </tr>
+        {% if discount_amount > 0 %}
+        <tr>
+            <td class="text-right">Discount:</td>
+            <td class="text-right">- Rs. {{ "%.2f"|format(discount_amount) }}</td>
+        </tr>
+        {% endif %}
+        <tr class="total-row">
+            <td class="text-right">TOTAL:</td>
+            <td class="text-right">Rs. {{ "%.2f"|format(final_total) }}</td>
+        </tr>
+    </table>
+
+    <div class="text-center" style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 10px;">
+        <p>Thank you for dining with us!</p>
+        <p style="font-size: 8px; color: #999;">Generated on: {{ generated_at }}</p>
+    </div>
+
+
+</body>
+
+</html>
