@@ -302,6 +302,74 @@ async def get_bill_pdf(
         headers={"Content-Disposition": f"attachment; filename=bill_{bill_id}.pdf"}
     )
 
+@router.get("/{bill_id}/details", response_model=BillWithOrdersResponse)
+async def get_bill_details(
+    bill_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Get full details of a specific bill including all orders and items."""
+    logger.api_request(SERVICE, "GET", f"/{bill_id}/details", bill_id=bill_id)
+    result = await db.execute(
+        select(Bill)
+        .options(
+            selectinload(Bill.session).selectinload(OrderSession.table),
+            selectinload(Bill.session)
+            .selectinload(OrderSession.orders)
+            .selectinload(Order.items)
+            .selectinload(OrderItem.menu_item),
+        )
+        .join(OrderSession, Bill.session_id == OrderSession.id)
+        .where(Bill.id == bill_id, OrderSession.restaurant_id == current_user.restaurant_id)
+    )
+    bill = result.scalar_one_or_none()
+    if not bill:
+        logger.api_error(SERVICE, "GET", f"/{bill_id}/details", "Bill not found", bill_id=bill_id)
+        raise HTTPException(status_code=404, detail="Bill not found")
+    
+    logger.api_response(SERVICE, "GET", f"/{bill_id}/details", 200, bill_id=str(bill.id))
+
+    orders_data = []
+    for order in (bill.session.orders if bill.session else []):
+        items_data = [
+            OrderItemResponse(
+                id=str(item.id),
+                menu_item_id=str(item.menu_item_id),
+                menu_item_name=item.menu_item.name if item.menu_item else "",
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                special_instructions=item.special_instructions,
+                status=item.status,
+            )
+            for item in order.items
+        ]
+        orders_data.append(
+            OrderResponse(
+                id=str(order.id),
+                session_id=str(order.session_id),
+                status=order.status,
+                total_amount=order.total_amount,
+                created_at=order.created_at,
+                updated_at=order.updated_at,
+                items=items_data,
+                table_number=order.table_number,
+            )
+        )
+
+    return BillWithOrdersResponse(
+        id=str(bill.id),
+        session_id=str(bill.session_id),
+        subtotal=bill.subtotal,
+        tax_amount=bill.tax_amount,
+        discount_amount=bill.discount_amount,
+        final_total=bill.final_total,
+        payment_status=bill.payment_status,
+        payment_method=bill.payment_method,
+        created_at=bill.created_at,
+        paid_at=bill.paid_at,
+        orders=orders_data,
+    )
+
 
 @router.get("/{restaurant_slug}/{bill_id}", response_model=BillResponse)
 async def get_bill(restaurant_slug: str, bill_id: str, db: AsyncSession = Depends(get_db)):
@@ -324,6 +392,8 @@ async def get_bill(restaurant_slug: str, bill_id: str, db: AsyncSession = Depend
         raise HTTPException(status_code=404, detail="Bill not found")
     logger.api_response(SERVICE, "GET", f"/{restaurant_slug}/{bill_id}", 200, bill_id=bill_id)
     return bill
+
+
 
 
 @router.patch("/{bill_id}", response_model=BillResponse)
