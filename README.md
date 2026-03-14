@@ -8,8 +8,9 @@ Real-time QR code-based restaurant ordering system.
 - Real-time order updates via WebSockets
 - Menu management
 - Order tracking and management
-- Bill genera  tion and payment tracking
-- Admin dashboard support
+- Bill generation and payment tracking
+- Restaurant settings management
+- Admin and Superadmin dashboard support
 
 ## Tech Stack
 
@@ -84,20 +85,24 @@ dineQR/
 
 ## API Endpoints
 
-| Endpoint                  | Description                |
-| ------------------------- | -------------------------- |
-| `GET /`                   | API status                 |
-| `GET /health`             | Health check               |
-| `WS /ws/admin`            | Admin WebSocket connection |
-| `WS /ws/table/{table_id}` | Table WebSocket connection |
+| Endpoint                  | Description                               |
+| ------------------------- | ----------------------------------------- |
+| `GET /`                   | API status                                |
+| `GET /health`             | Health check                              |
+| `GET /api/settings`       | Get/Update restaurant settings (Admin)    |
+| `GET /api/superadmin/...` | Superadmin restaurant & access management |
+| `WS /ws/admin`            | Admin WebSocket connection (JWT Auth)     |
+| `WS /ws/table/{table_id}` | Table WebSocket connection (QR/JWT Auth)  |
 
 ## Environment Variables
 
-| Variable       | Description                            |
-| -------------- | -------------------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string           |
-| `SECRET_KEY`   | Application secret key                 |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) |
+| Variable              | Description                            |
+| --------------------- | -------------------------------------- |
+| `DATABASE_URL`        | PostgreSQL connection string           |
+| `SECRET_KEY`          | Application secret key                 |
+| `CORS_ORIGINS`        | Allowed CORS origins (comma-separated) |
+| `SUPERADMIN_USERNAME` | Initial superadmin username            |
+| `SUPERADMIN_PASSWORD` | Initial superadmin password            |
 
 ## License
 
