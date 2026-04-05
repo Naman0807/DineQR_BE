@@ -8,9 +8,13 @@ Real-time QR code-based restaurant ordering system.
 - Real-time order updates via WebSockets
 - Menu management
 - Order tracking and management
-- Bill generation and payment tracking
+- Bill generation and payment trackingk
 - Restaurant settings management
 - Admin and Superadmin dashboard support
+
+## Recent Updates
+
+- **Timezone Parsing Fixes:** Addressed an issue where backend UTC timestamps were being incorrectly displayed on frontend administrator dashboards (`BillView`, `BillHistoryPage`, `OrdersDashboard`). The fix ensures raw timestamp strings are properly parsed via the `Z` (Zulu) designator before being converted to local time via JavaScript Date methods.
 
 ## Tech Stack
 

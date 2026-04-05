@@ -96,7 +96,7 @@ async def websocket_admin(
     user_id = payload.get("sub")
     role = payload.get("role")
     
-    if not user_id or role != UserRole.ADMIN.value:
+    if not user_id or role not in (UserRole.ADMIN.value, UserRole.SUPERADMIN.value):
         logger.warning("[WEBSOCKET] Admin connection rejected: Unauthorized")
         await websocket.close(code=4003, reason="Unauthorized: Admin access required")
         return

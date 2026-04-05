@@ -136,8 +136,14 @@ async def update_settings(
             )
         current_user.email = settings_data.admin_email
     
-    # Handle admin_phone update (for non-superadmin users)
+    # Handle admin_phone update
     if settings_data.admin_phone is not None:
+        if current_user.role != UserRole.SUPERADMIN:
+            logger.api_error(SERVICE, "PUT", "", "Only superadmin can update admin phone", user_id=str(current_user.id))
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmin can update phone number"
+            )
         current_user.phone_number = settings_data.admin_phone
     
     await db.commit()
