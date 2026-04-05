@@ -261,3 +261,21 @@ class RestaurantSettingsResponse(BaseModel):
     description: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Customer OTP Authentication Schemas
+class SendOTPRequest(BaseModel):
+    phone_number: str
+    session_id: str
+
+
+class VerifyOTPRequest(BaseModel):
+    phone_number: str
+    session_id: str
+    otp_code: str
+
+
+class CustomerAuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in_minutes: int = 60

@@ -509,3 +509,29 @@ async def get_all_bills(
     return bills
 
 
+@router.delete("/{bill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bill(
+    bill_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Delete a bill."""
+    logger.api_request(SERVICE, "DELETE", f"/{bill_id}")
+
+    query = select(Bill).join(OrderSession).where(
+        Bill.id == bill_id,
+        OrderSession.restaurant_id == current_user.restaurant_id
+    )
+    result = await db.execute(query)
+    bill = result.scalar_one_or_none()
+
+    if not bill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bill not found")
+
+    await db.delete(bill)
+    await db.commit()
+
+    logger.api_response(SERVICE, "DELETE", f"/{bill_id}", 204)
+    return None
+
+

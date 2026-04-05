@@ -15,7 +15,7 @@ from app.schemas import (
     OrderSessionResponse, OrderSessionWithOrdersResponse
 )
 from app.websocket.manager import ConnectionManager
-from app.auth.dependencies import get_current_admin_user
+from app.auth.dependencies import get_current_admin_user, get_current_customer
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
@@ -166,7 +166,8 @@ async def create_order(
     restaurant_slug: str,
     order: OrderCreate, 
     db: AsyncSession = Depends(get_db),
-    manager: ConnectionManager = Depends(get_manager)
+    manager: ConnectionManager = Depends(get_manager),
+    customer_payload: dict = Depends(get_current_customer)
 ):
     logger.api_request(SERVICE, "POST", f"/{restaurant_slug}/", session_id=order.session_id, item_count=len(order.items))
     
@@ -189,6 +190,10 @@ async def create_order(
     if session.session_status != SessionStatus.ACTIVE:
         logger.api_error(SERVICE, "POST", f"/{restaurant_slug}/", "Session is not active", session_id=order.session_id)
         raise HTTPException(status_code=400, detail="Session is not active")
+
+    # Ensure the token belongs to the session they are trying to order for
+    if customer_payload.get("session_id") != order.session_id:
+        raise HTTPException(status_code=403, detail="Token does not match the active session.")
 
     total_amount = Decimal("0.00")
     order_items = []

@@ -112,3 +112,21 @@ async def get_optional_user(
     user = result.scalar_one_or_none()
     
     return user
+
+
+async def get_current_customer(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
+    """Validate the 1-hour customer JWT token for placing orders."""
+    from app.auth.jwt import decode_access_token
+    
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    
+    if payload is None or payload.get("role") != "customer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired customer session token. Please verify OTP again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload

@@ -6,6 +6,7 @@ from app.routes.bills import router as bills_router
 from app.routes.auth import router as auth_router
 from app.routes.settings import router as settings_router
 from app.routes.superadmin import router as superadmin_router
+from app.routes.customer_auth import router as customer_auth_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -16,3 +17,4 @@ api_router.include_router(orders_router)
 api_router.include_router(bills_router)
 api_router.include_router(superadmin_router)
 api_router.include_router(settings_router)
+api_router.include_router(customer_auth_router)

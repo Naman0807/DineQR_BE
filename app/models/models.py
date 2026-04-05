@@ -244,3 +244,26 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="customers")
+
+
+class OTPVerification(Base):
+    __tablename__ = "otp_verifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    phone_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    otp_code: Mapped[str] = mapped_column(String(10), nullable=False)
+    
+    # Foreign Keys
+    restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=False)
+    table_id: Mapped[str] = mapped_column(String(36), ForeignKey("tables.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("order_sessions.id", ondelete="CASCADE"), nullable=False)
+    
+    # State tracking
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    restaurant: Mapped["Restaurant"] = relationship()
+    table: Mapped["Table"] = relationship()
+    session: Mapped["OrderSession"] = relationship()
