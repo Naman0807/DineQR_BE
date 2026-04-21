@@ -126,7 +126,7 @@ async def get_current_customer(
     if payload is None or payload.get("role") != "customer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired customer session token. Please verify OTP again.",
+            detail="Invalid or expired customer session token. Please login again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return payload

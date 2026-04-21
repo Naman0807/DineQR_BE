@@ -263,16 +263,11 @@ class RestaurantSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Customer OTP Authentication Schemas
-class SendOTPRequest(BaseModel):
+# Customer Registration Schema (direct auth - no OTP)
+class CustomerRegisterRequest(BaseModel):
+    name: str
     phone_number: str
     session_id: str
-
-
-class VerifyOTPRequest(BaseModel):
-    phone_number: str
-    session_id: str
-    otp_code: str
 
 
 class CustomerAuthResponse(BaseModel):

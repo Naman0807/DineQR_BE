@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SUPERADMIN_USERNAME: str
     SUPERADMIN_PASSWORD: str
-    FAST2SMS_API_KEY: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -17,6 +16,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 @lru_cache
