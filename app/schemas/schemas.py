@@ -10,6 +10,7 @@ class TableStatus(str, enum.Enum):
     OCCUPIED = "occupied"
 
 class SessionStatus(str, enum.Enum):
+    PENDING = "pending"
     ACTIVE = "active"
     CLOSED = "closed"
 
@@ -26,8 +27,9 @@ class OrderItemStatus(str, enum.Enum):
 
 
 class PaymentStatus(str, enum.Enum):
-    UNPAID = "unpaid"
-    PAID = "paid"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class PaymentMethod(str, enum.Enum):
@@ -136,6 +138,7 @@ class OrderItemResponse(BaseModel):
 class OrderCreate(BaseModel):
     session_id: str
     items: list[OrderItemCreate]
+    customer_id: Optional[str] = None
 
 
 class OrderUpdate(BaseModel):
@@ -145,6 +148,7 @@ class OrderUpdate(BaseModel):
 class OrderResponse(BaseModel):
     id: str
     session_id: str
+    customer_id: Optional[str] = None
     status: OrderStatus
     total_amount: Decimal
     created_at: datetime
@@ -160,6 +164,7 @@ class OrderSessionResponse(BaseModel):
     table_id: str
     table_number: int
     session_status: SessionStatus
+    requires_approval: bool = False
     started_at: datetime
     ended_at: Optional[datetime]
 
@@ -178,8 +183,25 @@ class BillCreate(BillBase):
 
 class BillUpdate(BaseModel):
     discount_amount: Optional[Decimal] = None
-    payment_status: Optional[PaymentStatus] = None
-    payment_method: Optional[PaymentMethod] = None
+
+
+class PaymentCreate(BaseModel):
+    bill_id: str
+    customer_id: Optional[str] = None
+    amount: Decimal
+    payment_method: PaymentMethod
+
+
+class PaymentResponse(BaseModel):
+    id: str
+    bill_id: str
+    customer_id: Optional[str] = None
+    amount: Decimal
+    payment_method: PaymentMethod
+    status: PaymentStatus
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BillResponse(BaseModel):
@@ -189,11 +211,10 @@ class BillResponse(BaseModel):
     tax_amount: Decimal
     discount_amount: Decimal
     final_total: Decimal
-    payment_status: PaymentStatus
-    payment_method: Optional[PaymentMethod]
     created_at: datetime
     paid_at: Optional[datetime]
     table_number: int | None = None
+    payments: list[PaymentResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -274,3 +295,7 @@ class CustomerAuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in_minutes: int = 60
+
+class PayBillRequest(BaseModel):
+    payment_method: PaymentMethod
+    customer_id: Optional[str] = None

@@ -45,6 +45,7 @@ def serialize_order_response(order: Order) -> OrderResponse:
     return OrderResponse(
         id=order.id,
         session_id=order.session_id,
+        customer_id=order.customer_id,
         status=order.status,
         total_amount=order.total_amount,
         created_at=order.created_at,
@@ -58,6 +59,7 @@ def serialize_order(order: Order) -> dict:
     return {
         "id": order.id,
         "session_id": order.session_id,
+        "customer_id": order.customer_id,
         "status": order.status.value,
         "total_amount": float(order.total_amount),
         "created_at": order.created_at.isoformat(),
@@ -219,6 +221,7 @@ async def create_order(
 
     db_order = Order(
         session_id=order.session_id,
+        customer_id=customer_payload.get("sub"),
         total_amount=total_amount,
         status=OrderStatus.RECEIVED,
     )

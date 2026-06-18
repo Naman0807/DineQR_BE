@@ -23,6 +23,7 @@ class TableStatus(str, enum.Enum):
 
 
 class SessionStatus(str, enum.Enum):
+    PENDING = "pending"
     ACTIVE = "active"
     CLOSED = "closed"
 
@@ -39,8 +40,9 @@ class OrderItemStatus(str, enum.Enum):
 
 
 class PaymentStatus(str, enum.Enum):
-    UNPAID = "unpaid"
-    PAID = "paid"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class PaymentMethod(str, enum.Enum):
@@ -83,7 +85,7 @@ class Restaurant(Base):
     orders: Mapped[list["Order"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
     bills: Mapped[list["Bill"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
-    customers: Mapped[list["Customer"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
+    payments: Mapped[list["Payment"]] = relationship(back_populates="restaurant", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -158,6 +160,7 @@ class OrderSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     table_id: Mapped[str] = mapped_column(String(36), ForeignKey("tables.id", ondelete="CASCADE"), nullable=False)
     session_status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus, native_enum=False), default=SessionStatus.ACTIVE)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
@@ -173,6 +176,7 @@ class Order(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("order_sessions.id", ondelete="CASCADE"), nullable=False)
+    customer_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     status: Mapped[OrderStatus] = mapped_column(SQLEnum(OrderStatus, native_enum=False), default=OrderStatus.RECEIVED)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -180,6 +184,7 @@ class Order(Base):
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     session: Mapped["OrderSession"] = relationship(back_populates="orders")
+    customer: Mapped["Customer | None"] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="orders")
 
@@ -217,13 +222,12 @@ class Bill(Base):
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"))
     final_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    payment_status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus, native_enum=False), default=PaymentStatus.UNPAID)
-    payment_method: Mapped[PaymentMethod | None] = mapped_column(SQLEnum(PaymentMethod, native_enum=False), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
 
     session: Mapped["OrderSession"] = relationship(back_populates="bill")
+    payments: Mapped[list["Payment"]] = relationship(back_populates="bill", cascade="all, delete-orphan")
     restaurant: Mapped["Restaurant | None"] = relationship(back_populates="bills")
 
     @hybrid_property
@@ -239,8 +243,25 @@ class Customer(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    phone_number: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True)
+    phone_number: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    orders: Mapped[list["Order"]] = relationship(back_populates="customer")
+    payments: Mapped[list["Payment"]] = relationship(back_populates="customer")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    bill_id: Mapped[str] = mapped_column(String(36), ForeignKey("bills.id", ondelete="CASCADE"), nullable=False)
+    customer_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    payment_method: Mapped[PaymentMethod] = mapped_column(SQLEnum(PaymentMethod, native_enum=False), nullable=False)
+    status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus, native_enum=False), default=PaymentStatus.PENDING)
     restaurant_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="customers")
+    bill: Mapped["Bill"] = relationship(back_populates="payments")
+    customer: Mapped["Customer | None"] = relationship(back_populates="payments")
+    restaurant: Mapped["Restaurant | None"] = relationship(back_populates="payments")

@@ -5,7 +5,7 @@ import io
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from jinja2 import Environment, FileSystemLoader
 from xhtml2pdf import pisa
@@ -33,7 +33,7 @@ def generate_bill_pdf(
     discount_amount: Decimal,
     final_total: Decimal,
     payment_status: str,
-    payment_method: str = None,
+    payments: Optional[List[dict]] = None,
 ) -> bytes:
     """Generate a PDF bill and return bytes."""
 
@@ -51,7 +51,7 @@ def generate_bill_pdf(
         discount_amount=float(discount_amount),
         final_total=float(final_total),
         payment_status=payment_status.upper(),
-        payment_method=payment_method.upper() if payment_method else None,
+        payments=payments or [],
         generated_at=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
