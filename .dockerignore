@@ -47,3 +47,11 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Documentation (not needed in production image)
+AGENTS.md
+README.md
+docker_actionable_plan.md
+
+# Markdown files
+*.md

@@ -1,38 +1,57 @@
-# Stage 1: Base
-FROM python:3.11-slim AS base
+# Stage 1: Builder — install build deps + Python packages with uv
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1
 
+# Install system build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
     build-essential \
+    libpq-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy uv from official image (for faster pip installs)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
 WORKDIR /app
 
+# Copy and install Python dependencies (layer caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
-# Stage 2: Application
-FROM base AS builder
-
+# Copy application source
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY entrypoint.sh .
 
-ENV PYTHONPATH=/app
+RUN chmod +x entrypoint.sh
 
-# Stage 3: Production
-FROM base AS production
+# Stage 2: Production — minimal runtime image
+FROM python:3.11-slim AS production
 
-COPY --from=builder /app /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PYTHONPATH=/app
+
+# Install ONLY runtime system dependencies (no compilers/headers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 WORKDIR /app
 
+# Copy application code from builder
+COPY --from=builder /app /app
+
+# Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
 
@@ -40,7 +59,9 @@ USER appuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; exit(0) if httpx.get('http://localhost:8000/health', timeout=5).status_code == 200 else exit(1)" || exit(1)
+# Healthcheck using Python stdlib (zero external dependencies)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request, sys; r=urllib.request.urlopen('http://localhost:8000/health'); sys.exit(0 if r.status==200 else 1)"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint runs migrations then starts uvicorn
+ENTRYPOINT ["./entrypoint.sh"]

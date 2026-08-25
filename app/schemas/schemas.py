@@ -299,3 +299,119 @@ class CustomerAuthResponse(BaseModel):
 class PayBillRequest(BaseModel):
     payment_method: PaymentMethod
     customer_id: Optional[str] = None
+
+
+# Analytics Schemas
+class RevenueOverview(BaseModel):
+    total_revenue: float
+    total_bills: int
+    paid_bills: int
+    unpaid_bills: int
+    average_order_value: float
+    total_tax_collected: float
+    total_discounts: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RevenueTrendPoint(BaseModel):
+    date: str
+    revenue: float
+    bill_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaymentMethodBreakdown(BaseModel):
+    method: str
+    total_amount: float
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MenuItemPerformance(BaseModel):
+    menu_item_id: str
+    name: str
+    category_name: str
+    total_quantity: int
+    total_revenue: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CategoryPerformance(BaseModel):
+    category_id: str
+    name: str
+    total_quantity: int
+    total_revenue: float
+    item_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TopCustomer(BaseModel):
+    id: str
+    name: Optional[str] = None
+    phone_number: str
+    visit_count: int
+    total_spent: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerSummary(BaseModel):
+    total_customers: int
+    new_customers: int
+    returning_customers: int
+    top_customers: list[TopCustomer]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Analytics Schemas
+class RevenueOverview(BaseModel):
+    total_revenue: float
+    total_bills: int
+    paid_bills: int
+    unpaid_bills: int
+    average_order_value: float
+    total_tax_collected: float
+    total_discounts: float
+
+class RevenueTrendPoint(BaseModel):
+    date: str
+    revenue: float
+    bill_count: int
+
+class PaymentMethodBreakdown(BaseModel):
+    method: str
+    total_amount: float
+    count: int
+
+class MenuItemPerformance(BaseModel):
+    menu_item_id: str
+    name: str
+    category_name: str
+    total_quantity: int
+    total_revenue: float
+
+class CategoryPerformance(BaseModel):
+    category_id: str
+    name: str
+    total_quantity: int
+    total_revenue: float
+    item_count: int
+
+class TopCustomer(BaseModel):
+    customer_id: str
+    name: str
+    phone_number: str
+    visit_count: int
+    total_spent: float
+
+class CustomerSummary(BaseModel):
+    total_customers: int
+    new_customers: int
+    returning_customers: int
+    top_customers: list[TopCustomer]
