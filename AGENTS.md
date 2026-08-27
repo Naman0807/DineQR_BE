@@ -47,3 +47,4 @@ Read `BRANCHING.md` at the repo root and follow it. Summary:
 6. When a feature is complete & tested: merge feature → `dev`, push `dev`.
 7. Definition of Done must pass before merging into `dev` (see BRANCHING.md).
 8. NEVER force-push to `dev` or `main`.
+9. NEVER push a feature branch to origin, create a PR, or merge into `dev`/`main` until the user explicitly approves it. Work locally on the feature branch and wait for approval.
