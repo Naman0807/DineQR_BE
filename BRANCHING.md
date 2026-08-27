@@ -16,6 +16,7 @@ This document defines the branching workflow for this repository. ALL developers
 4. NEVER work directly on `dev` or `main` — always on a feature branch.
 5. Before starting ANY task: `git checkout dev` then `git pull origin dev`, then create a feature branch.
 6. When a feature is complete and tested: merge feature → `dev`, push `dev`.
+7. NEVER push a feature branch to origin, create a PR, or merge into `dev`/`main` until the user explicitly approves it. Work locally on the feature branch and wait for approval.
 
 ## Definition of Done (merge gate)
 
@@ -24,6 +25,7 @@ Before any feature branch merges into `dev`, ALL of the following MUST be true:
 - [ ] No broken endpoints (backend: smoke test passes)
 - [ ] Tests pass (once tests are added)
 - [ ] Feature branch is up to date with `dev` (rebased/merged)
+- [ ] User explicitly approved the push/PR/merge
 - [ ] PR/merge created into `dev`
 
 ## Sync Ritual (for multiple developers)
