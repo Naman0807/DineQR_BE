@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from typing import List
 from datetime import datetime as dt, timezone, timedelta
 
@@ -113,8 +113,8 @@ async def get_revenue_trend(
                 Bill.created_at >= start,
                 Bill.created_at <= end,
             )
-            .group_by(func.date_trunc(granularity, Bill.created_at))
-            .order_by(func.date_trunc(granularity, Bill.created_at))
+            .group_by(text("1"))
+            .order_by(text("1"))
         )
         rows = result.all()
 
@@ -165,7 +165,7 @@ async def get_revenue_by_method(
 
         breakdown = [
             PaymentMethodBreakdown(
-                method=str(row.method),
+                method=row.method.value if hasattr(row.method, "value") else str(row.method),
                 total_amount=float(row.total_amount),
                 count=row.count,
             )

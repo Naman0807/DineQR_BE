@@ -59,15 +59,15 @@ def upgrade() -> None:
     result = conn.execute(
         sa.text(
             "SELECT id, final_total, payment_method, restaurant_id, created_at "
-            "FROM bills WHERE payment_status = 'paid'"
+            "FROM bills WHERE LOWER(payment_status) = 'paid'"
         )
     )
     for row in result:
-        pm = row.payment_method if row.payment_method else 'cash'
+        pm = row.payment_method if row.payment_method else 'CASH'
         conn.execute(
             sa.text(
                 "INSERT INTO payments (id, bill_id, customer_id, amount, payment_method, status, restaurant_id, created_at) "
-                "VALUES (:id, :bill_id, NULL, :amount, :payment_method, 'completed', :restaurant_id, :created_at)"
+                "VALUES (:id, :bill_id, NULL, :amount, :payment_method, 'COMPLETED', :restaurant_id, :created_at)"
             ),
             {
                 "id": str(__import__('uuid').uuid4()),
